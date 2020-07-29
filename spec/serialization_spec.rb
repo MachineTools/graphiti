@@ -821,16 +821,76 @@ RSpec.describe "serialization" do
   describe "extra attributes" do
     before do
       PORO::Employee.create(first_name: "John")
-      resource.attribute :foo, :string do
-        "bar"
+      resource.class_eval do
+        attribute :foo, :string do
+          "bar"
+        end
+        extra_attribute :first_name, :string
+        extra_attribute :credit_card_id, :string, readable: false do
+          "123"
+        end
+        extra_attribute :age, :string, readable: true do
+          "22"
+        end
+        extra_attribute :credit_card_type, :string, readable: :admin? do
+          "type_c"
+        end
+
+        def admin?
+          !!context.admin
+        end
       end
-      resource.extra_attribute :first_name, :string
+    end
+
+    context "guard by boolean" do
+      context "if guard passes" do
+        it "is serialized" do
+          params[:extra_fields] = {employees: "age"}
+          render
+          expect(json["data"][0]["attributes"]["age"]).to eq("22")
+        end
+      end
+      context "if guard fails" do
+        it "is not serialized" do
+          params[:extra_fields] = {employees: "credit_cart_id"}
+          render
+          expect(json["data"][0]["attributes"]).to_not have_key("credit_cart_id")
+        end
+      end
+    end
+
+    context "guard by method" do
+      context "if guard passes" do
+        around do |e|
+          Graphiti.with_context(OpenStruct.new(admin: true)) do
+            e.run
+          end
+        end
+
+        it "is serialized" do
+          params[:extra_fields] = {employees: "credit_card_type"}
+          render
+          expect(json["data"][0]["attributes"]["credit_card_type"]).to eq("type_c")
+        end
+      end
+
+      context "if  guard fails" do
+        around do |e|
+          Graphiti.with_context(OpenStruct.new(admin: false)) do
+            e.run
+          end
+        end
+        it "is not serialized" do
+          render
+          expect(json["data"][0]["attributes"]).to_not have_key("credit_card_type")
+        end
+      end
     end
 
     it "adds extra attributes to the serializer" do
       params[:extra_fields] = {employees: "first_name"}
       expect(resource.serializer.attribute_blocks.keys)
-        .to match_array([:first_name, :foo])
+        .to match_array([:first_name, :foo, :age, :credit_card_type])
       render
       expect(json["data"][0]["attributes"]).to eq({
         "foo" => "bar",
@@ -1043,6 +1103,18 @@ RSpec.describe "serialization" do
           end
         end
 
+        context "and custom filter name is provided" do
+          before do
+            resource.has_many :positions, inverse_filter: :person_id
+          end
+
+          it "links correctly" do
+            render
+            expect(positions["links"]["related"])
+              .to eq("/poro/positions?filter[person_id]=1")
+          end
+        end
+
         context "opting-out of linking" do
           before do
             resource.has_many :positions, link: false
@@ -1090,7 +1162,7 @@ RSpec.describe "serialization" do
             it "raises error" do
               expect {
                 resource.has_many :positions
-              }.to raise_error(Graphiti::Errors::InvalidLink, /Make sure the endpoint \"\/poro\/positions\" exists with action :index/)
+              }.to raise_error(Graphiti::Errors::InvalidLink, /Make sure the endpoint "\/poro\/positions" exists with action :index/)
             end
           end
 
@@ -1241,6 +1313,22 @@ RSpec.describe "serialization" do
           expect(json["data"][0]["relationships"]["teams"]["links"]["related"])
             .to eq("/poro/teams?filter[employee_id]=1")
         end
+
+        context "when the inverse_filter has been overridden" do
+          def define_relationship
+            resource.many_to_many :teams,
+              inverse_filter: :the_employee_id,
+              resource: team_resource,
+              foreign_key: {employee_teams: :employee_id}
+          end
+
+          it "uses the overridden name" do
+            define_relationship
+            render
+            expect(json["data"][0]["relationships"]["teams"]["links"]["related"])
+              .to eq("/poro/teams?filter[the_employee_id]=1")
+          end
+        end
       end
 
       context "and a has_one relationship" do
@@ -1325,7 +1413,7 @@ RSpec.describe "serialization" do
             it "raises error" do
               expect {
                 resource.belongs_to :classification
-              }.to raise_error(Graphiti::Errors::InvalidLink, /Make sure the endpoint \"\/poro\/classifications\" exists with action :show/)
+              }.to raise_error(Graphiti::Errors::InvalidLink, /Make sure the endpoint "\/poro\/classifications" exists with action :show/)
             end
           end
 

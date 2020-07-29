@@ -32,6 +32,7 @@ if ENV["APPRAISAL_INITIALIZED"]
                              organization: org1,
                              dwelling: house,
                              created_at: one_day_ago,
+                             last_login: one_day_ago,
                              created_at_date: one_day_ago.to_date,
                              identifier: SecureRandom.uuid
     end
@@ -43,6 +44,7 @@ if ENV["APPRAISAL_INITIALIZED"]
                              decimal_age: 70.011,
                              dwelling: condo,
                              created_at: two_days_ago,
+                             last_login: one_day_ago,
                              created_at_date: two_days_ago.to_date,
                              identifier: SecureRandom.uuid
     end
@@ -106,6 +108,7 @@ if ENV["APPRAISAL_INITIALIZED"]
                                active: true,
                                float_age: 70.05,
                                decimal_age: 70.055,
+                               last_login: nil,
                                created_at: 1.day.from_now,
                                created_at_date: 1.day.from_now.to_date
       end
@@ -585,6 +588,15 @@ if ENV["APPRAISAL_INITIALIZED"]
           it "works" do
             expect(ids).to eq([author2.id])
           end
+
+          context "when value is nil" do
+            let(:filter) { {last_login: value} }
+            let(:value) { {eq: "null"} }
+
+            it "works" do
+              expect(ids).to eq([author3.id])
+            end
+          end
         end
 
         context "!eq" do
@@ -592,6 +604,15 @@ if ENV["APPRAISAL_INITIALIZED"]
 
           it "works" do
             expect(ids).to eq([author1.id, author3.id])
+          end
+
+          context "when value is nil" do
+            let(:filter) { {last_login: value} }
+            let(:value) { {'!eq': "null"} }
+
+            it "works" do
+              expect(ids).to eq([author1.id, author2.id])
+            end
           end
         end
 
@@ -968,6 +989,25 @@ if ENV["APPRAISAL_INITIALIZED"]
         expect(book).to have_key("alternate_title")
         expect(book).to_not have_key("title")
       end
+
+      context "when a custom inverse_filter is provided" do
+        before do
+          Legacy::AuthorResource.class_eval do
+            has_many :books, inverse_filter: :some_author_id
+          end
+        end
+
+        after do
+          Legacy::AuthorResource.class_eval do
+            has_many :books
+          end
+        end
+
+        it "still works" do
+          do_index({include: "books"})
+          expect(included("books").map(&:id)).to eq([book1.id, book2.id])
+        end
+      end
     end
 
     context "sideloading belongs_to" do
@@ -1169,6 +1209,46 @@ if ENV["APPRAISAL_INITIALIZED"]
         end
       end
 
+      context "when the association is self-referential" do
+        before do
+          Legacy::AuthorResource.class_eval do
+            many_to_many :mentors,
+              foreign_key: {mentee_joins: :mentee_id},
+              resource: Legacy::AuthorResource
+
+            many_to_many :mentees,
+              foreign_key: {mentor_joins: :mentor_id},
+              resource: Legacy::AuthorResource
+          end
+        end
+
+        let!(:author_with_mentors) { Legacy::Author.create!(first_name: "Fred") }
+        let!(:author_with_mentees) { Legacy::Author.create!(first_name: "George") }
+        let!(:author_with_both) { Legacy::Author.create!(first_name: "Alice") }
+
+        before do
+          author_with_mentors.mentors = [author_with_mentees, author_with_both]
+          author_with_mentees.mentees = [author_with_mentors, author_with_both]
+        end
+
+        it "still works" do
+          do_index({include: "mentors"})
+          target = d.find { |e| e.id == author_with_mentors.id }
+          expect(target.relationships["mentors"]).to eq({
+            "data" => [
+              {"type" => "authors", "id" => author_with_mentees.id.to_s},
+              {"type" => "authors", "id" => author_with_both.id.to_s}
+            ]
+          })
+        end
+
+        it "allows filtering by the association" do
+          do_index({filter: {mentor_id: author_with_mentees.id}})
+
+          expect(d.map(&:id)).to eq([author_with_mentors.id, author_with_both.id])
+        end
+      end
+
       context "when the table name does not match the association name" do
         before do
           Legacy::AuthorHobby.table_name = :author_hobby
@@ -1191,6 +1271,44 @@ if ENV["APPRAISAL_INITIALIZED"]
           do_index({include: "hobbies"})
           expect(included("hobbies").map(&:id))
             .to eq([other_table_hobby1.id, other_table_hobby2.id])
+        end
+      end
+
+      context "when a custom inverse_filter is provided" do
+        before do
+          Legacy::AuthorResource.class_eval do
+            many_to_many :hobbies, inverse_filter: :the_id_of_the_author
+          end
+        end
+
+        after do
+          Legacy::AuthorResource.class_eval do
+            many_to_many :hobbies
+          end
+        end
+
+        it "still works" do
+          do_index({include: "hobbies"})
+          expect(included("hobbies").map(&:id)).to eq([hobby1.id, hobby2.id])
+        end
+
+        describe "filtering relationship" do
+          controller(ApplicationController) do
+            def index
+              records = Legacy::HobbyResource.all(params)
+              render jsonapi: records
+            end
+          end
+
+          before do
+            allow(controller.request.env).to receive(:[])
+              .with("PATH_INFO") { "/legacy/hobbies" }
+          end
+
+          it "can filter the relationship by the custom name" do
+            do_index(filter: {the_id_of_the_author: [author1.id, author2.id].join(",")})
+            expect(d.map(&:id)).to eq([hobby1.id, hobby2.id])
+          end
         end
       end
 

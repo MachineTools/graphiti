@@ -604,7 +604,7 @@ RSpec.describe "filtering" do
         params[:filter] = {first_name: {eq: "Harold"}}
         expect {
           records
-        }.to raise_error(Graphiti::Errors::InvalidFilterValue, /Allowlist: \[\"William\"\]/)
+        }.to raise_error(Graphiti::Errors::InvalidFilterValue, /Allowlist: \["William"\]/)
       end
 
       it "accepts values in the allowlist" do
@@ -628,7 +628,7 @@ RSpec.describe "filtering" do
         params[:filter] = {first_name: {eq: "Harold"}}
         expect {
           records
-        }.to raise_error(Graphiti::Errors::InvalidFilterValue, /Denylist: \[\"Harold\"\]/)
+        }.to raise_error(Graphiti::Errors::InvalidFilterValue, /Denylist: \["Harold"\]/)
       end
 
       it "accepts values not in the denylist" do
@@ -701,7 +701,7 @@ RSpec.describe "filtering" do
       params[:filter] = {first_name: {eq: "Harold"}}
       expect {
         records
-      }.to raise_error(Graphiti::Errors::InvalidFilterValue, /Denylist: \[\"Harold\"\]/)
+      }.to raise_error(Graphiti::Errors::InvalidFilterValue, /Denylist: \["Harold"\]/)
     end
 
     it "accepts values not in the denylist" do

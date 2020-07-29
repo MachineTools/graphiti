@@ -1,7 +1,7 @@
 guard :rspec, cmd: "bundle exec rspec --color --format documentation" do
   require "guard/rspec/dsl"
   dsl = Guard::RSpec::Dsl.new(self)
-  watch(%r{^spec/(.*)\/?(.*)_spec\.rb$})
+  watch(%r{^spec/(.*)/?(.*)_spec\.rb$})
 
   # Feel free to open issues for suggestions and improvements
 

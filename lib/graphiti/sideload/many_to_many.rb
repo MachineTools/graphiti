@@ -11,8 +11,12 @@ class Graphiti::Sideload::ManyToMany < Graphiti::Sideload::HasMany
     foreign_key.values.first
   end
 
+  def inverse_filter
+    @inverse_filter || true_foreign_key
+  end
+
   def base_filter(parents)
-    {true_foreign_key => ids_for_parents(parents).join(",")}
+    {true_foreign_key => parent_filter(parents)}
   end
 
   def infer_foreign_key
@@ -32,7 +36,7 @@ class Graphiti::Sideload::ManyToMany < Graphiti::Sideload::HasMany
     self_ref = self
     fk_type = parent_resource_class.attributes[:id][:type]
     fk_type = :hash if polymorphic?
-    resource_class.filter true_foreign_key, fk_type do
+    resource_class.filter inverse_filter, fk_type do
       eq do |scope, value|
         self_ref.belongs_to_many_filter(scope, value)
       end
